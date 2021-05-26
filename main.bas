@@ -79,7 +79,7 @@ FOR i = LBOUND(prg) TO UBOUND(prg)
         CASE "-"
         CASE "="
 
-        CASE "S": UseScope Prg(i).arg
+        CASE "s": UseScope Prg(i).arg
         CASE "{"
             tmp~% = scope
             UseScope Prg(i).arg
@@ -218,25 +218,49 @@ END FUNCTION
 
 SUB InitKwdList
     SHARED Keywords() AS STRING
-    Keywords(1) = " < > ( ) = - : ; ? ! [ ] . { }"
+    'sorry for the garbage way of putting in comments, inline comments arent supported
+
+    'and since this function will only be run once, it wouldnt really matter performance-wise.
+
+    Keywords(1) =_
+    " ( )" +                left$("Loop",0)          +_
+    " : ;" +                left$("Goto/gosub",0)    +_
+    " ? !" +                left$("If true goto/if false goto",0) +_
+    " [ ]" +                left$("Def sub/return",0)+_
+    " ." +                  left$("Misc functionality",0)+_
+    " { }" +                left$("Define scope",0)  +_
+    " s" +                  left$("Set scope",0)
+
 
     Keywords(2) =_
-    " -> <-" +_
-    " ++ --" +_
-    " +A +B +C -A -B -C" +_
-    " m+ m- m/ m* m^ m%" +_
-    " l| l& l^ l!" +_
-    " )! )= )? )> )<" +_
-    " (! (= (? (> (<" +_
-    " s> s< s= s?" +_
-    " S> S<"
+    " -> <-" +              left$("Print/Input",0)   +_
+    _
+    " ++ --" +              left$("Inc/Dec",0)       +_
+    " A+ B+ C+ D+" +        left$("Add",0)           +_
+    " A- B- C- D-" +        left$("Subtract",0)      +_
+    _
+    " A= B= C= D=" +        left$("Equals",0)        +_
+    " A< B< C< D<" +        left$("Greater than",0)  +_
+    " A> B> C> D>" +        left$("Less than",0)     +_
+    _
+    " )? )!" +              left$("Loop if eq/ne",0) +_
+    _
+    " s> s<" +              left$("Pop/push",0)      +_
+    _
+    " >> <<"
+
 
     Keywords(3) =_
-    " rA> rA< rB> rB< rC< rC>" +_
-    " tAB tAC tBA tBC tCA tCB" +_
-    " )=< )=>" +_
-    " (=< (=>" +_
-    " ---"
+    " A>= B>= C>= D>=" +    left$("Less than or equal to",0)    +_
+    " A=< B=< C=< D=<" +    left$("Greater than or equal to",0) +_
+    _
+    " A>> B>> C>> D>>" +    left$("Put reg into var",0)         +_
+    " A<< B<< C<< D<<" +    left$("Put var into reg",0)         +_
+    _
+        " tAB tAC tAD" +    left$("Transfer A",0)               +_
+    " tBA"+ " tBC tBD" +    left$("Transfer B",0)               +_
+    " tCA tCB"+ " tCD" +    left$("Transfer C",0)               +_
+    " tDA tDB tDC"     +    left$("Transfer D",0)
 END SUB
 
 FUNCTION KeywordLen~%% (ln$)

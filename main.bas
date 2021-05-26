@@ -6,9 +6,10 @@ TYPE LabelType
 END TYPE
 
 TYPE ProgramBufferType
-    cmd AS STRING * 1
+    cmd AS STRING
     arg AS STRING
     ln AS STRING
+    line AS _UNSIGNED LONG
 END TYPE
 
 TYPE VarType
@@ -16,36 +17,63 @@ TYPE VarType
     name AS STRING
 END TYPE
 
-DIM Prg(&HFFFFFF) AS ProgramBufferType
 DIM Labels(1) AS LabelType
 DIM Scopes(1) AS STRING, Scopes AS _UNSIGNED INTEGER
 DIM Vars(1, LBOUND(Scopes) TO UBOUND(Scopes)) AS VarType
 DIM Stack(1, LBOUND(Scopes) TO UBOUND(Scopes)) AS STRING
 DIM StackPtr(LBOUND(Scopes) TO UBOUND(Scopes)) AS INTEGER
-DIM i AS _UNSIGNED LONG
+DIM Keywords(1 TO 3) AS STRING
+
+
+DIM Prg(&HFFFFFF) AS ProgramBufferType
+DIM i AS _UNSIGNED LONG, prgln AS _UNSIGNED LONG
 
 DO
+    prgln = prgln + 1
     LINE INPUT #f%, Prg(i).ln
+    Prg(i).line = prgln
+
     Prg(i).ln = LTRIM$(RTRIM$(Prg(i).ln))
-    Prg(i).cmd = CHR$(ASC(Prg(i).ln))
-    Prg(i).arg = LTRIM$(MID$(Prg(i).ln, 2))
-    SELECT CASE Prg(i).arg
-        CASE "v": NewLabel i, Prg(i).arg
-        CASE "#"
-        CASE ELSE: i = i + 1
-    END SELECT
+
+    IF LEN(Prg(i).ln) = 0 THEN _CONTINUE
+
+    q~% = INSTR(Prg(i).ln, CHR$(34))
+    WHILE q~%
+        q2~% = INSTR(q~% + 1, Prg(i).ln, CHR$(34))
+        IF q2~% = 0 THEN
+            PRINT USING "On line ######: WARN: Cannot find closing quotation_! Placing one at the end of the line_."; prgln
+            Prg(i).ln = Prg(i).ln + CHR$(34)
+            _CONTINUE
+        END IF
+        q~% = q2~%
+    WEND
+    Prg(i).ln = RTRIM$(LEFT$(Prg(i).ln, INSTR(q~%, Prg(i).ln, "#")))
+
+    IF ASC(Prg(i).ln) = 64 THEN
+        NewLabel i, LTRIM$(MID$(Prg(i).ln, 2))
+        _CONTINUE
+    END IF
+
+    l~%% = KeywordLen(Prg(i).ln)
+    IF l~%% THEN
+        Prg(i).cmd = LEFT$(Prg(i).ln, l~%%)
+        Prg(i).arg = LTRIM$(MID$(Prg(i).ln, l~%% + 1))
+        i = i + 1
+    ELSE
+        PRINT USING "On line ######: WARN: Cannot identify keyword_! Skipping_."; prgln
+    END IF
 LOOP UNTIL EOF(f%)
 REDIM _PRESERVE Prg(i) AS ProgramBufferType
 
 FOR i = LBOUND(prg) TO UBOUND(prg)
     SELECT CASE Prg(i).cmd
-        CASE "^"
+        CASE ":"
             i = GetLabel(Prg(i).arg)
 
-        CASE "<"
+        CASE "-<"
             PRINT ParseArg(Prg(i).arg);
-        CASE ">"
 
+        CASE ">"
         CASE "*"
         CASE "+"
         CASE "-"
@@ -53,8 +81,9 @@ FOR i = LBOUND(prg) TO UBOUND(prg)
 
         CASE "S": UseScope Prg(i).arg
         CASE "{"
-            Push MKL$(scope)
+            tmp~% = scope
             UseScope Prg(i).arg
+            Push MKL$(tmp~%)
 
         CASE "}"
             scope = CVL(Pull)
@@ -65,6 +94,10 @@ NEXT
 
 SUB NewLabel (ln AS _UNSIGNED LONG, n$)
     SHARED Labels() AS LabelType
+    STATIC NextAutoLabel AS _UNSIGNED LONG
+
+    IF n$ = "" THEN n$ = MKL$(NextAutoLabel): NextAutoLabel = NextAutoLabel + 1
+
     FOR i~% = LBOUND(labels) TO UBOUND(labels)
         IF Labels(i~%).name = n$ THEN Labels(i~%).line = ln: EXIT SUB
         IF Labels(i~%).name = "" THEN EXIT FOR
@@ -183,3 +216,35 @@ FUNCTION Pull$
     Pull = Stack(StackPtr(Scope), Scope)
 END FUNCTION
 
+SUB InitKwdList
+    SHARED Keywords() AS STRING
+    Keywords(1) = " < > ( ) = - : ; ? ! [ ] . { }"
+
+    Keywords(2) =_
+    " -> <-" +_
+    " ++ --" +_
+    " +A +B +C -A -B -C" +_
+    " m+ m- m/ m* m^ m%" +_
+    " l| l& l^ l!" +_
+    " )! )= )? )> )<" +_
+    " (! (= (? (> (<" +_
+    " s> s< s= s?" +_
+    " S> S<"
+
+    Keywords(3) =_
+    " rA> rA< rB> rB< rC< rC>" +_
+    " tAB tAC tBA tBC tCA tCB" +_
+    " )=< )=>" +_
+    " (=< (=>" +_
+    " ---"
+END SUB
+
+FUNCTION KeywordLen~%% (ln$)
+    SHARED Keywords() AS STRING
+    FOR i~%% = UBOUND(keywords) TO LBOUND(keywords) STEP -1
+        IF INSTR(Keywords(i~%%), " " + LEFT$(ln$, i~%%)) THEN
+            KeywordLen~%% = i~%%
+            EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION

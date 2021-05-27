@@ -13,16 +13,35 @@ TYPE ProgramBufferType
 END TYPE
 
 TYPE VarType
+    type AS STRING * 1
     val AS STRING
     name AS STRING
 END TYPE
+
+TYPE RegType
+    A AS STRING
+    B AS STRING
+    C AS STRING
+    D AS STRING
+    E AS _BYTE
+END TYPE
+
+CONST __InternalStackCount = 2
+CONST __InternalStack_Loops = 0
+CONST __InternalStack_Scopes = 1
+CONST __InternalStack_Subs = 2
 
 DIM Labels(1) AS LabelType
 DIM Scopes(1) AS STRING, Scopes AS _UNSIGNED INTEGER
 DIM Vars(1, LBOUND(Scopes) TO UBOUND(Scopes)) AS VarType
 DIM Stack(1, LBOUND(Scopes) TO UBOUND(Scopes)) AS STRING
+DIM InternalStack(1, __InternalStackCount) AS LONG
+DIM InternalStackPtr(__InternalStackCount) AS INTEGER
 DIM StackPtr(LBOUND(Scopes) TO UBOUND(Scopes)) AS INTEGER
 DIM Keywords(1 TO 3) AS STRING
+
+DIM Scope AS INTEGER
+DIM Reg AS RegType
 
 
 DIM Prg(&HFFFFFF) AS ProgramBufferType
@@ -49,7 +68,7 @@ DO
     WEND
     Prg(i).ln = RTRIM$(LEFT$(Prg(i).ln, INSTR(q~%, Prg(i).ln, "#")))
 
-    IF ASC(Prg(i).ln) = 64 THEN
+    IF ASC(Prg(i).ln) = 64 THEN '@ for labels
         NewLabel i, LTRIM$(MID$(Prg(i).ln, 2))
         _CONTINUE
     END IF
@@ -70,8 +89,26 @@ FOR i = LBOUND(prg) TO UBOUND(prg)
         CASE ":"
             i = GetLabel(Prg(i).arg)
 
-        CASE "-<"
-            PRINT ParseArg(Prg(i).arg);
+        CASE ";": InternalPush i, __InternalStack_Subs
+            i = GetLabel(Prg(i).arg)
+
+
+        CASE "(": InternalPush i, __InternalStack_Loops
+        CASE ")": i = InternalPull(__InternalStack_Loops)
+        CASE ")?": IF Reg.E THEN i = InternalPull(__InternalStack_Loops)
+        CASE ")!": IF Reg.E = 0 THEN i = InternalPull(__InternalStack_Loops)
+
+
+        CASE "{": InternalPush Scope, __InternalStack_Scopes
+            UseScope Prg(i).arg
+        CASE "}": Scope = InternalPull(__InternalStack_Scopes)
+
+
+        CASE "!": IF Reg.E = 0 THEN i = GetLabel(Prg(i).arg)
+        CASE "?": IF Reg.E THEN i = GetLabel(Prg(i).arg)
+
+        CASE "<-": PRINT ParseArg(Prg(i).arg);
+        CASE "->":
 
         CASE ">"
         CASE "*"
@@ -80,15 +117,6 @@ FOR i = LBOUND(prg) TO UBOUND(prg)
         CASE "="
 
         CASE "s": UseScope Prg(i).arg
-        CASE "{"
-            tmp~% = scope
-            UseScope Prg(i).arg
-            Push MKL$(tmp~%)
-
-        CASE "}"
-            scope = CVL(Pull)
-
-        CASE "?"
     END SELECT
 NEXT
 
@@ -118,9 +146,9 @@ FUNCTION GetLabel~& (n$)
 END FUNCTION
 
 FUNCTION GetVar$ (Var$)
-    SHARED Vars() AS VarType, Scope AS _UNSIGNED INTEGER
+    SHARED Vars() AS VarType, Scope AS INTEGER
     FOR i~% = LBOUND(vars) TO UBOUND(vars)
-        IF Vars(i~%, Scope).name = Var$ THEN GetVar = Var$: EXIT FUNCTION
+        IF Vars(i~%, Scope).name = Var$ THEN GetVar = Vars(i~%, Scope).val: EXIT FUNCTION
         IF Vars(i~%, Scope).name = "" THEN EXIT FOR
     NEXT
     IF i~% = UBOUND(vars) THEN
@@ -131,7 +159,7 @@ FUNCTION GetVar$ (Var$)
 END FUNCTION
 
 SUB SetVar (Var$, Val$)
-    SHARED Vars() AS VarType, Scope AS _UNSIGNED INTEGER
+    SHARED Vars() AS VarType, Scope AS INTEGER
     FOR i~% = LBOUND(vars) TO UBOUND(vars)
         IF Vars(i~%, Scope).name = Var$ THEN Vars(i~%, Scope).val = Val$: EXIT SUB
         IF Vars(i~%, Scope).name = "" THEN EXIT FOR
@@ -145,6 +173,28 @@ SUB SetVar (Var$, Val$)
 END SUB
 
 FUNCTION ParseArg$ (s$)
+    IF ASC(s$) = 35 THEN '#1, #&H5
+        IF INSTR(s$, ".") THEN
+            ParseArg = _MK$(_FLOAT, VAL(MID$(s$, 2)))
+        ELSE
+            ParseArg = _MK$(_INTEGER64, VAL(MID$(s$, 2)))
+        END IF
+        EXIT FUNCTION
+
+    ELSEIF ASC(s$) = 46 THEN '.A, .D
+        SHARED Reg AS RegType
+        SELECT CASE ASC(s$, 2)
+            CASE 65: ParseArg = Reg.A: EXIT FUNCTION '.A
+            CASE 66: ParseArg = Reg.B: EXIT FUNCTION '.B
+            CASE 67: ParseArg = Reg.C: EXIT FUNCTION '.C
+            CASE 68: ParseArg = Reg.D: EXIT FUNCTION '.D
+            CASE 69: ParseArg = TrueFalse(Reg.E): EXIT FUNCTION '.E
+        END SELECT
+    END IF
+
+    'Parse quotes
+    'Quotation is like this:
+    '  "This is text"this is a variable"This is more text"
     q~% = INSTR(s$, CHR$(34))
     WHILE q~%
         var$ = MID$(s$, q2~% + 1, q~% - q2~%)
@@ -206,15 +256,42 @@ SUB Push (Val$)
     Stack(StackPtr(Scope), Scope) = Val$
 END SUB
 
+SUB InternalPush (V AS LONG, Stack AS _UNSIGNED _BYTE)
+    SHARED InternalStack() AS LONG, InternalStackPtr() AS INTEGER
+
+    InternalStackPtr(Stack) = InternalStackPtr(Stack) + 1
+
+    IF InternalStackPtr(Stack) >= UBOUND(InternalStack) THEN
+        REDIM _PRESERVE InternalStack(LBOUND(InternalStack) TO InternalStackPtr(Stack), __InternalStackCount) AS LONG
+    END IF
+
+    InternalStack(InternalStackPtr(Stack), Stack) = V
+END SUB
+
+
 FUNCTION Pull$
     SHARED Stack() AS STRING, StackPtr() AS INTEGER, Scopes() AS STRING
     SHARED Scope AS _UNSIGNED INTEGER
     StackPtr(Scope) = StackPtr(Scope) - 1
     IF StackPtr(Scope) <= LBOUND(stack) THEN
-        REDIM _PRESERVE Stack(LBOUND(stack) TO StackPtr(Scope), LBOUND(scopes) TO UBOUND(scopes)) AS STRING
+        REDIM _PRESERVE Stack(StackPtr(Scope) TO UBOUND(stack), LBOUND(scopes) TO UBOUND(scopes)) AS STRING
     END IF
     Pull = Stack(StackPtr(Scope), Scope)
 END FUNCTION
+
+FUNCTION InternalPull& (Stack AS _UNSIGNED _BYTE)
+    SHARED InternalStack() AS LONG, InternalStackPtr() AS INTEGER
+
+    InternalStackPtr(Stack) = InternalStackPtr(Stack) - 1
+
+    IF InternalStackPtr(Stack) <= LBOUND(InternalStack) THEN
+        REDIM _PRESERVE InternalStack(InternalStackPtr(Stack) TO UBOUND(InternalStack), __InternalStackCount) AS LONG
+    END IF
+
+    InternalPull = InternalStack(InternalStackPtr(Stack), Stack)
+END FUNCTION
+
+
 
 SUB InitKwdList
     SHARED Keywords() AS STRING
@@ -271,4 +348,8 @@ FUNCTION KeywordLen~%% (ln$)
             EXIT FUNCTION
         END IF
     NEXT
+END FUNCTION
+
+FUNCTION TrueFalse$ (Eq%%)
+    IF Eq%% THEN TrueFalse = "TRUE" ELSE TrueFalse = "FALSE"
 END FUNCTION
